@@ -1,2 +1,2 @@
 #your config.py should look like this
-BOT_TOKEN = "YOUR_DISCORD_BOT_TOKEN"
+BOT_TOKEN = "MTQ1MjM3NDAxNjM3MDQxMzY2Mg.GjaPsR.magiM4enxw-iuHlHAG7Y8p2F-vmPcsoTXfy2-I"
