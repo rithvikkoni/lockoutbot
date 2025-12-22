@@ -9,7 +9,7 @@ from cfapi import fetch_submissions, fetch_problemset
 import json
 import os
 
-BAD_TAGS = {"output-only", "special", "challenge"}
+BAD_TAGS = {"output-only", "*special problem", "challenge"}
 
 # --- Config ---
 DEFAULT_POINTS = [100, 200, 300, 400, 500]
