@@ -9,6 +9,8 @@ from cfapi import fetch_submissions, fetch_problemset
 import json
 import os
 
+BAD_TAGS = {"output-only", "special", "challenge"}
+
 # --- Config ---
 DEFAULT_POINTS = [100, 200, 300, 400, 500]
 RECENT_FILE = "recent_duels.json"
@@ -47,11 +49,17 @@ async def find_problem_for_rating(problems, rating, excluded_pids, submissions1,
     random.shuffle(candidates)
     for p in candidates:
         pid = f"{p['contestId']}-{p['index']}"
+        tags = set(p.get("tags", []))
+        if tags & BAD_TAGS:
+            continue
+
         if pid in excluded_pids:
             continue
         if pid in submissions1 or pid in submissions2:
             continue
+
         return p
+
     return None
 
 async def get_unsolved_problems_for_ratings(handle1, handle2, ratings_list):
@@ -548,3 +556,51 @@ def setup(bot: commands.Bot):
             if now - session["start_time"] >= session["time_limit"]:
                 session["ended"] = True
                 await _finalize_and_announce(session)
+
+    @bot.command()
+    async def recent(ctx):
+        try:
+            with open("recent_duels.json", "r") as f:
+                duels = json.load(f)
+        except FileNotFoundError:
+            await ctx.send("❌ No duel history found.")
+            return
+
+        if not duels:
+            await ctx.send("📭 No completed duels yet.")
+            return
+
+        embed = discord.Embed(
+            title="🕒 Recent Duels",
+            color=discord.Color.blurple()
+        )
+
+        for d in duels[-20:][::-1]:  # last 20, newest first
+            h1, h2 = d["handles"]
+            s1 = d["scores"].get(h1, 0)
+            s2 = d["scores"].get(h2, 0)
+
+            # Winner logic
+            if s1 > s2:
+                winner = h1
+            elif s2 > s1:
+                winner = h2
+            else:
+                winner = "Draw"
+
+            duration = int(d["end_time"] - d["start_time"])
+
+            embed.add_field(
+                name=f" {h1} vs {h2} ",
+                value=(
+                    f"  **Winner:** {winner}\n"
+                    f"  **Score:** {s1} – {s2}\n"
+                    f"  **Duration:** {duration // 60}m {duration % 60}s"
+                ),
+                inline=False
+            )
+
+        await ctx.send(embed=embed)
+
+
+
