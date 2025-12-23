@@ -209,6 +209,7 @@ def setup(bot: commands.Bot):
             "per_problem": {pid: {"solved_by": None, "first_time": None} for pid in pids},
             "start_time": time.time(),
             "time_limit": time_min * 60,
+            "end_time": time.time() + (time_min * 60),
             "ended": False,
             "channel_id": ctx.channel.id
         }
@@ -249,24 +250,38 @@ def setup(bot: commands.Bot):
 
         newly_awarded = []
         now = time.time()
+
+        # enforce duel end-time: only accept ACs with creationTimeSeconds <= end_time
+        end_ts = int(session.get("end_time", int(session["start_time"] + session["time_limit"])))
         for idx, pid in enumerate(session["problems_pids"]):
             if session["per_problem"][pid]["solved_by"] is not None:
                 continue
+
             t1 = subs1.get(pid)
             t2 = subs2.get(pid)
-            if not t1 and not t2:
+
+            valid1 = (t1 is not None and int(t1) <= end_ts)
+            valid2 = (t2 is not None and int(t2) <= end_ts)
+            if not valid1 and not valid2:
                 continue
-            if t1 and t2:
-                if t1 < t2:
-                    award = h1; ft = t1
-                elif t2 < t1:
-                    award = h2; ft = t2
+
+            # normalize timestamps to ints for comparisons
+            t1i = int(t1) if valid1 else None
+            t2i = int(t2) if valid2 else None
+
+            if valid1 and valid2:
+                if t1i < t2i:
+                    award = h1; ft = t1i
+                elif t2i < t1i:
+                    award = h2; ft = t2i
                 else:
-                    award = "tie"; ft = t1
-            elif t1:
-                award = h1; ft = t1
+                    award = "tie"; ft = t1i
+            elif valid1:
+                award = h1; ft = t1i
+            elif valid2:
+                award = h2; ft = t2i
             else:
-                award = h2; ft = t2
+                continue  # should not reach here
 
             if award == "tie":
                 session["per_problem"][pid]["solved_by"] = "tie"
@@ -277,7 +292,8 @@ def setup(bot: commands.Bot):
                 session["per_problem"][pid]["solved_by"] = award
                 session["per_problem"][pid]["first_time"] = ft
                 session["scores"][award] = session["scores"].get(award, 0) + pts
-                session["score_times"].setdefault(award, now)
+                # record the submission time (CF timestamp) for tie-breaks
+                session["score_times"].setdefault(award, ft)
                 newly_awarded.append((idx, pid, award, pts))
 
         if not newly_awarded:
@@ -380,6 +396,13 @@ def setup(bot: commands.Bot):
         if session["ended"]:
             await ctx.send(embed=discord.Embed(description="⚠️ This duel has already ended.", color=discord.Color.orange()))
             return
+
+        # Do a final silent update before finalizing
+        try:
+            await _update_scores(session)
+        except Exception as e:
+            print("❌ Final update failed on manual end:", e)
+
         session["ended"] = True
         await _finalize_and_announce(session)
 
@@ -400,6 +423,12 @@ def setup(bot: commands.Bot):
             await _finalize_and_announce(session)
 
     async def _finalize_and_announce(session):
+        # Do one final silent update to pick up last-second ACs (honoring submission timestamps)
+        try:
+            await _update_scores(session)
+        except Exception as e:
+            print("❌ Final update failed before finalizing:", e)
+
         h1, h2 = session["handles"]
         pids = session["problems_pids"]
         problems = session["problems"]
@@ -565,6 +594,12 @@ def setup(bot: commands.Bot):
                 continue
 
             if now - session["start_time"] >= session["time_limit"]:
+                # perform a final silent update (honoring submission times) before finalizing
+                try:
+                    await _update_scores(session)
+                except Exception as e:
+                    print("❌ Final update failed in timer watcher:", e)
+
                 session["ended"] = True
                 await _finalize_and_announce(session)
 
@@ -612,6 +647,3 @@ def setup(bot: commands.Bot):
             )
 
         await ctx.send(embed=embed)
-
-
-
