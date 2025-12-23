@@ -10,7 +10,7 @@ import json
 import os
 
 BAD_TAGS = {"output-only", "*special problem", "challenge", "expression parsing"}
-
+MAX_ACTIVE_DUELS = 20
 # --- Config ---
 DEFAULT_POINTS = [100, 200, 300, 400, 500]
 RECENT_FILE = "recent_duels.json"
@@ -170,6 +170,17 @@ def setup(bot: commands.Bot):
                 msg += f"- `{p2.display_name}` has no registered handle.\n"
             msg += "Admins can register handles with `!register @user handle`."
             await ctx.send(embed=discord.Embed(description=msg, color=discord.Color.orange()))
+            return
+        # Enforce max active duels
+        if len(duel_sessions) >= MAX_ACTIVE_DUELS:
+            await ctx.send(embed=discord.Embed(
+                title="⏳ Duel Limit Reached",
+                description=(
+                    f"Maximum **{MAX_ACTIVE_DUELS} active duels** are currently running.\n"
+                    "Please wait for a duel to finish and try again."
+                ),
+                color=discord.Color.orange()
+            ))
             return
 
         key = _session_key(p1.id, p2.id)
