@@ -206,6 +206,7 @@ def setup(bot: commands.Bot):
             "points": points,
             "scores": {h1: 0, h2: 0},
             "score_times": {h1: None, h2: None},
+            "score_reached": {h1: {}, h2: {}},
             "per_problem": {pid: {"solved_by": None, "first_time": None} for pid in pids},
             "start_time": time.time(),
             "time_limit": time_min * 60,
@@ -291,9 +292,15 @@ def setup(bot: commands.Bot):
                 pts = session["points"][idx] if idx < len(session["points"]) else 100*(idx+1)
                 session["per_problem"][pid]["solved_by"] = award
                 session["per_problem"][pid]["first_time"] = ft
+                # update cumulative score
                 session["scores"][award] = session["scores"].get(award, 0) + pts
-                # record the submission time (CF timestamp) for tie-breaks
+                # record the submission time (CF timestamp) for tie-breaks (legacy field)
                 session["score_times"].setdefault(award, ft)
+                # record when this player first reached this new cumulative total
+                new_total = session["scores"][award]
+                session.setdefault("score_reached", {})
+                session["score_reached"].setdefault(award, {})
+                session["score_reached"][award].setdefault(new_total, ft)
                 newly_awarded.append((idx, pid, award, pts))
 
         if not newly_awarded:
@@ -461,8 +468,8 @@ def setup(bot: commands.Bot):
         elif scores[h2] > scores[h1]:
             embed.add_field(name="Winner", value=f"`{h2}`", inline=False)
         else:
-            lt1 = session["score_times"].get(h1) or float("inf")
-            lt2 = session["score_times"].get(h2) or float("inf")
+            lt1 = session.get("score_reached", {}).get(h1, {}).get(scores[h1], float("inf"))
+            lt2 = session.get("score_reached", {}).get(h2, {}).get(scores[h2], float("inf"))
             if lt1 < lt2:
                 embed.add_field(name="Tie-break Winner", value=f"`{h1}` (earlier to reach final score)", inline=False)
             elif lt2 < lt1:
@@ -507,6 +514,10 @@ def setup(bot: commands.Bot):
                 session["per_problem"][pid]["solved_by"] = h1
                 session["per_problem"][pid]["first_time"] = submissions1.get(pid)
                 scores[h1] += pts
+                # record when this player first reached this new total
+                session.setdefault("score_reached", {})
+                session["score_reached"].setdefault(h1, {})
+                session["score_reached"][h1].setdefault(scores[h1], session["per_problem"][pid]["first_time"] or now)
                 score_times.setdefault(h1, now)
                 new_solved.append((pid, idx, True, False))
             elif s2 and not s1:
@@ -514,6 +525,9 @@ def setup(bot: commands.Bot):
                 session["per_problem"][pid]["solved_by"] = h2
                 session["per_problem"][pid]["first_time"] = submissions2.get(pid)
                 scores[h2] += pts
+                session.setdefault("score_reached", {})
+                session["score_reached"].setdefault(h2, {})
+                session["score_reached"][h2].setdefault(scores[h2], session["per_problem"][pid]["first_time"] or now)
                 score_times.setdefault(h2, now)
                 new_solved.append((pid, idx, False, True))
             elif s1 and s2:
@@ -526,6 +540,9 @@ def setup(bot: commands.Bot):
                         session["per_problem"][pid]["solved_by"] = h1
                         session["per_problem"][pid]["first_time"] = t1
                         scores[h1] += pts
+                        session.setdefault("score_reached", {})
+                        session["score_reached"].setdefault(h1, {})
+                        session["score_reached"][h1].setdefault(scores[h1], t1)
                         score_times.setdefault(h1, now)
                         new_solved.append((pid, idx, True, False))
                     elif t2 < t1:
@@ -533,6 +550,9 @@ def setup(bot: commands.Bot):
                         session["per_problem"][pid]["solved_by"] = h2
                         session["per_problem"][pid]["first_time"] = t2
                         scores[h2] += pts
+                        session.setdefault("score_reached", {})
+                        session["score_reached"].setdefault(h2, {})
+                        session["score_reached"][h2].setdefault(scores[h2], t2)
                         score_times.setdefault(h2, now)
                         new_solved.append((pid, idx, False, True))
                     else:
@@ -546,6 +566,11 @@ def setup(bot: commands.Bot):
                     session["per_problem"][pid]["first_time"] = now
                     scores[h1] += pts
                     scores[h2] += pts
+                    session.setdefault("score_reached", {})
+                    session["score_reached"].setdefault(h1, {})
+                    session["score_reached"].setdefault(h2, {})
+                    session["score_reached"][h1].setdefault(scores[h1], now)
+                    session["score_reached"][h2].setdefault(scores[h2], now)
                     score_times.setdefault(h1, now)
                     score_times.setdefault(h2, now)
                     new_solved.append((pid, idx, True, True))
