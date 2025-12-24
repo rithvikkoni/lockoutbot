@@ -9,7 +9,8 @@ from cfapi import fetch_submissions, fetch_problemset
 import json
 import os
 
-BAD_TAGS = {"output-only", "*special problem", "challenge", "expression parsing"}
+BAD_TAGS = {"output-only", "*special problem", "challenge", "expression parsing", "*special"}
+EXCLUDED_CONTEST_IDS = {952} 
 MAX_ACTIVE_DUELS = 20
 # --- Config ---
 DEFAULT_POINTS = [100, 200, 300, 400, 500]
@@ -48,6 +49,10 @@ async def find_problem_for_rating(problems, rating, excluded_pids, submissions1,
     candidates = [p for p in problems if p.get("rating") == rating]
     random.shuffle(candidates)
     for p in candidates:
+        cid = p.get("contestId")
+        if cid in EXCLUDED_CONTEST_IDS:
+            continue
+
         pid = f"{p['contestId']}-{p['index']}"
         tags = set(p.get("tags", []))
         if tags & BAD_TAGS:
