@@ -276,7 +276,8 @@ def setup(bot: commands.Bot):
                 elif t2i < t1i:
                     award = h2; ft = t2i
                 else:
-                    award = "tie"; ft = t1i
+                    # same-second tie-break: prefer detection order (award to h1)
+                    award = h1; ft = t1i
             elif valid1:
                 award = h1; ft = t1i
             elif valid2:
@@ -303,31 +304,40 @@ def setup(bot: commands.Bot):
                 session["score_reached"][award].setdefault(new_total, ft)
                 newly_awarded.append((idx, pid, award, pts))
 
-        if not newly_awarded:
-            await ctx.send(embed=discord.Embed(description="ℹ️ No new accepted submissions found for either player among unsolved duel problems.", color=discord.Color.blue()))
-            return
-
-        # announce
+        # announce full status (duel_status style) — show all problems and current points
         p0, p1_ids = session["players"][0], session["players"][1]
-        embed = discord.Embed(title="✅ Duel Update — New Solves", color=discord.Color.green())
+        embed = discord.Embed(title="📊 Duel Status", color=discord.Color.blue())
         embed.description = f"<@{p0}>  vs  <@{p1_ids}>"
-        for idx, pid, award_handle, pts in newly_awarded:
-            p = session["problems"][idx]
-            # if solved -> show name as plain text + LOCKED (no link)
-            if award_handle == "tie":
-                embed.add_field(
-                    name=f"Q{idx+1} [{session['ratings'][idx]}] — tie",
-                    value=f"{p['name']}\n`{pid}`\nNo points awarded (same second). 🔒 LOCKED",
-                    inline=False
-                )
-            else:
-                embed.add_field(
-                    name=f"Q{idx+1} [{session['ratings'][idx]}] — awarded {pts} pts",
-                    value=f"{p['name']}\n`{pid}`\nSolved by `{award_handle}`. 🔒 LOCKED",
-                    inline=False
-                )
 
-        embed.add_field(name="Points", value=f"**{session['handles'][0]}**: {session['scores'].get(session['handles'][0],0)} pts\n**{session['handles'][1]}**: {session['scores'].get(session['handles'][1],0)} pts", inline=False)
+        for i, pid in enumerate(session["problems_pids"]):
+            p = session["problems"][i]
+            info = session["per_problem"].get(pid, {})
+            solved_by = info.get("solved_by")
+            if solved_by == "tie":
+                value = f"{p['name']}\n`{pid}`\nTie — no points 🔒 LOCKED"
+            elif solved_by:
+                value = f"{p['name']}\n`{pid}`\nSolved by `{solved_by}` 🔒 LOCKED"
+            else:
+                link = f"https://codeforces.com/contest/{p['contestId']}/problem/{p['index']}"
+                value = f"[{p['name']}]({link})\n`{pid}`\nUnsolved"
+            embed.add_field(name=f"Q{i+1} [{session['ratings'][i]}] — {session['points'][i]} pts", value=value, inline=False)
+
+        embed.add_field(
+            name="Points",
+            value=f"**{session['handles'][0]}**: {session['scores'].get(session['handles'][0],0)} pts\n**{session['handles'][1]}**: {session['scores'].get(session['handles'][1],0)} pts",
+            inline=False
+        )
+
+        # Optionally show what was newly awarded this update (if any)
+        if newly_awarded:
+            text = ""
+            for idx, pid, award_handle, pts in newly_awarded:
+                if award_handle == "tie":
+                    text += f"Q{idx+1} — tie (no pts)\n"
+                else:
+                    text += f"Q{idx+1} — awarded {pts} pts to {award_handle}\n"
+            embed.add_field(name="Recent changes", value=text, inline=False)
+
         time_left = session["time_limit"] - (time.time() - session["start_time"])
         embed.set_footer(text=f"Time left: {_format_time_left(time_left)}")
         ch = bot.get_channel(session["channel_id"])
@@ -335,41 +345,7 @@ def setup(bot: commands.Bot):
 
         await _maybe_finalize(session_key, session, bot)
 
-    @bot.command()
-    async def duel_status(ctx):
-        """
-        Show current duel status AS-IS (no automatic update).
-        """
-        session_key = next((k for k in duel_sessions if ctx.author.id in k), None)
-        if not session_key:
-            await ctx.send(embed=discord.Embed(description="❌ You're not in an active duel.", color=discord.Color.red()))
-            return
-        session = duel_sessions[session_key]
-
-        # Status embed WITHOUT fetching/updating submissions
-        embed = discord.Embed(title="📊 Duel Status", color=discord.Color.blue())
-        embed.description = f"<@{session['players'][0]}>  vs  <@{session['players'][1]}>"
-        for i, pid in enumerate(session["problems_pids"]):
-            p = session["problems"][i]
-            info = session["per_problem"].get(pid, {})
-            solved_by = info.get("solved_by")
-            if solved_by == "tie":
-                status = "Tie — no points"
-                value = f"{p['name']}\n`{pid}`\n{status} 🔒 LOCKED"
-            elif solved_by:
-                status = f"Solved by `{solved_by}`"
-                value = f"{p['name']}\n`{pid}`\n{status} 🔒 LOCKED"
-            else:
-                # unsolved: show link
-                link = f"https://codeforces.com/contest/{p['contestId']}/problem/{p['index']}"
-                status = "Unsolved"
-                value = f"[{p['name']}]({link})\n`{pid}`\n{status}"
-            embed.add_field(name=f"Q{i+1} [{session['ratings'][i]}] — {session['points'][i]} pts", value=value, inline=False)
-
-        embed.add_field(name="Points", value=f"**{session['handles'][0]}**: {session['scores'].get(session['handles'][0],0)} pts\n**{session['handles'][1]}**: {session['scores'].get(session['handles'][1],0)} pts", inline=False)
-        embed.set_footer(text=f"Time left: {_format_time_left(session['time_limit'] - (time.time() - session['start_time']))}")
-        ch = bot.get_channel(session["channel_id"])
-        await ch.send(embed=embed)
+    # NOTE: duel_status command removed as requested
 
     @bot.command()
     async def problems(ctx):
@@ -419,7 +395,7 @@ def setup(bot: commands.Bot):
         embed = discord.Embed(title="📚 Bot Commands", color=discord.Color.teal())
         embed.add_field(name="Linking (admin)", value="`!register @user handle` — register CF handle\n`!unregister @user` — remove registration", inline=False)
         embed.add_field(name="Duel (start)", value="`!duel @p1 @p2 base_rating time_min` — start duel", inline=False)
-        embed.add_field(name="Report / Status", value="`!update` — update solves; `!duel_status` — show status (no update); `!problems` — list problems; `!endduel` — end duel", inline=False)
+        embed.add_field(name="Report / Status", value="`!update` — update solves and show full duel status; `!problems` — list problems; `!endduel` — end duel", inline=False)
         embed.add_field(name="History", value="`!recent` — show recent duels", inline=False)
         await ctx.send(embed=embed)
 
